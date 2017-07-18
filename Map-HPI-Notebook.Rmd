@@ -1,0 +1,89 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, message = FALSE, warning = FALSE}
+library(tigris)
+library(tidyverse)
+library(tidyquant)
+library(leaflet)
+library(highcharter)
+```
+
+```{r, warning = FALSE}
+states <- states(cb = TRUE, class = "sf")
+```
+
+```{r, message = FALSE, warning = FALSE}
+# You might want to supply an api key
+library(Quandl)
+Quandl.api_key("d9EidiiDWoFESfdk5nPy")
+
+states_hpi <- 
+  Quandl("FMAC/HPI", order = 'asc') %>% 
+  select(-53:-54)
+
+states_wrangled <- 
+  states_hpi %>%
+  filter(Date == ymd("2016-03-31") | Date == ymd("2017-03-31")) %>% 
+  gather(state, value, -Date) %>% 
+  group_by(state) %>% 
+  mutate(hpa = (value - lag(value))/ lag(value)) %>%
+  mutate(hpa = round(hpa, digits = 2) * 100)  %>% 
+  na.omit() %>% 
+  select(state, hpa) %>% 
+  rename(STUSPS = state)
+```
+
+```{r}
+# Now we want to merge by a common column name. 
+states_hpa_leaflet <- merge(states, states_wrangled, by = "STUSPS", all.x = TRUE)
+
+head(states_hpa_leaflet)
+```
+
+
+```{r, fig.height = 5, fig.width = 10, message = FALSE, warning = FALSE}
+# Build states map
+statesPal<-colorNumeric(
+  palette = "GnBu",
+  domain = states_hpa_leaflet$hpa)
+
+statesPopup <- paste0( 
+                    states_hpa_leaflet$NAME,
+                    "<br>Annual House Price Percent Change: ", 
+                     states_hpa_leaflet$hpa, "%")
+
+leaf_states <- 
+  leaflet(states_hpa_leaflet) %>% 
+  addProviderTiles("CartoDB.Positron") %>%   
+  setView(-95, 40, zoom = 4) %>% 
+  addPolygons(stroke = TRUE, color = "black", weight = .4, opacity = 1.0, 
+              smoothFactor = 0.5, fill = TRUE, fillColor = ~statesPal(hpa), 
+              fillOpacity = .8, layerId = ~STUSPS, popup = statesPopup)
+
+leaf_states
+```
+
+
+```{r}
+# We need to convert to xts before calling highcharter. 
+states_hpi_xts <- states_hpi %>% 
+  as_xts(date_col = Date)
+
+highchart(type = "stock") %>%
+  hc_title(text = "California and Georgia HPI") %>%
+  hc_add_series(states_hpi_xts$GA, name = "Georgia HPI", color = 'blue') %>%
+  hc_add_series(states_hpi_xts$CA, name = "California HPI", color = 'green') %>%
+    # I don't like the look of the navigator/scrollbar, but you might. 
+    # Change these to enabled = TRUE and check out the results.
+  hc_navigator(enabled = FALSE) %>% 
+  hc_scrollbar(enabled = FALSE)
+
+```
+
+```{r}
+save(leaf_states, file = "leaflet_states.RDat")
+```
+

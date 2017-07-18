@@ -1,0 +1,80 @@
+---
+title: "Map HPI"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+# Load packages and initialize data here
+library(flexdashboard)
+library(highcharter)
+library(tidyverse)
+library(Quandl)
+library(leaflet)
+
+# You might want to supply an api key
+Quandl.api_key("d9EidiiDWoFESfdk5nPy")
+
+##load data
+load('leaflet_states.RDat')
+```
+
+House Prices by State {data-orientation=rows}
+=====================================
+
+Row {data-height=550}
+-------------------------------------
+
+### USA States
+
+```{r, echo = FALSE}
+
+leafletOutput("map1")
+
+  output$map1 <- renderLeaflet({
+   leaf_states
+  })
+
+clicked_state<- eventReactive(input$map1_shape_click, {
+  return(input$map1_shape_click$id)
+})
+
+
+state_data <- reactive({
+  data_set <- "FMAC/HPI_AK"
+  state_data <- Quandl(data_set, type = "xts", order = "asc")
+  index(state_data) <- as.Date(as.yearmon(index(state_data), format = '%Y%m'))
+  state_data
+}) 
+```
+
+
+Row {data-height=450}
+-----------------------------------------------------------------------
+
+### Chart B
+
+```{r}
+highchartOutput("highchart")
+   
+output$highchart <- renderHighchart({
+
+  validate(need(input$map1_shape_click$id != "",
+                "Please click on a state to display its HPI price history."))
+  
+  state_name <- as.character(clicked_state())
+  title <- paste(state_name, "HPI", sep = " ")
+  
+  highchart(type = "stock") %>% 
+    hc_title(text = title) %>%
+    hc_add_series(state_data(), name = title)%>% 
+    hc_navigator(enabled = FALSE) %>% 
+    hc_scrollbar(enabled = FALSE)
+})
+```
+
+
+
