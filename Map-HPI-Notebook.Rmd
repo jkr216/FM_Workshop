@@ -9,38 +9,140 @@ library(tidyverse)
 library(tidyquant)
 library(leaflet)
 library(highcharter)
+library(readxl)
 ```
 
 ```{r, warning = FALSE}
 states <- states(cb = TRUE, class = "sf")
 ```
 
+Here's a data import and wrangling exercise. Our purpose is to take an excel file of the housing price index (hpi) for the 50 states since 1975 and get into a format that can be used to visualize the data using ggplot, highcharter and leaflet.
+
+For `ggplot` we'll need to get this excel data into a data.frame or tibble with an appropriate date column. 
+
+For `highcharter`, we'll need an `xts` object. 
+
+`leaflet`: we'll see.
+
 ```{r, message = FALSE, warning = FALSE}
-# You might want to supply an api key
-library(Quandl)
-Quandl.api_key("d9EidiiDWoFESfdk5nPy")
 
-states_hpi <- 
-  Quandl("FMAC/HPI", order = 'asc') %>% 
-  select(-53:-54)
+# Load in data frame of housing price index for all 50 states
+# Plus the national average
+#states_hpi <- 
+ # Quandl("FMAC/HPI", order = 'asc')
 
-states_wrangled <- 
-  states_hpi %>%
+# Use the Import Dataset button to show how to do some 
+# pre-sorting. After import, we'll have a data.frame object
+# that still needs work - we'll wrangle it into shape.
+states_hpi <- read_excel("states_hpi.xls", 
+    col_types = c("text", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "skip", "skip"), na = "NA", skip = 5)
+
+# Take a look at the states_hpi object. 
+# The data column is called "month", it's terribly, unusably formatted.
+# We'll use `mutate` to create a 'date' column.
+# There are 15 rows of metadata at the bottom. Need to remove those with `slice`
+
+states_hpi_wrangled_leaflet <- 
+  states_hpi %>% 
+  # remove confusing metadata
+  slice(-508:-523) %>% 
+  # add nice date column
+  mutate(Date = seq(mdy('01/31/1975'),mdy('03/31/2017'), by = 'months')) %>%
+  # remove the month column, move date column to be first
+  select(Date, everything(), -Month) %>% 
+  # Filter to just the last year (March to March)
   filter(Date == ymd("2016-03-31") | Date == ymd("2017-03-31")) %>% 
+  # Change to long format
   gather(state, value, -Date) %>% 
-  group_by(state) %>% 
+  # Groupd by state
+  group_by(state) %>%
+  # Add annual price appreciation value with mutate and lag function
   mutate(hpa = (value - lag(value))/ lag(value)) %>%
-  mutate(hpa = round(hpa, digits = 2) * 100)  %>% 
+  # Round that new value
+  mutate(hpa = round(hpa, digits = 3) * 100)  %>% 
+  # good practice to get rid of any NAs, unless those are important to identify
   na.omit() %>% 
+  # Get rid all except state and HPA. We don't care about the rest.
   select(state, hpa) %>% 
+  # Rename the column? Why in the world choose STUSPS? 
+  # So we can add it to our shapefile/map
   rename(STUSPS = state)
+
 ```
 
 ```{r}
-# Now we want to merge by a common column name. 
-states_hpa_leaflet <- merge(states, states_wrangled, by = "STUSPS", all.x = TRUE)
+states_wrangled_ggplot <- 
+  states_hpi %>% 
+  # remove confusing metadata
+  slice(-508:-523) %>% 
+  # add nice date column
+  mutate(Date = seq(mdy('01/31/1975'), mdy('03/31/2017'), by = 'months')) %>%
+  # remove the month column, move date column to be first
+  select(Date, everything(), -Month) %>% 
+  ##gather from wide to long format
+  gather(state, hpi, -Date) %>%
+  ##round hpi to four digits
+  mutate(hpi = round(hpi, digits = 4)) %>%
+  ##create new column: hpa, hpa12, hpa3 etc.
+  mutate(
+         hpa = ((1+ (hpi-lag(hpi))/hpi)^12) - 1, 
+         hpa12 = ((1+ (hpi-lag(hpi, 12))/hpi)^1) - 1, 
+         hpa3 = ((1+ (hpi-lag(hpi, 3))/hpi)^4) - 1, 
+         hpi12 = lag(hpi, 12), 
+         hpi12min = rollapply(hpi, 12, min, fill = NA, na.rm = FALSE, align = 'right'),
+         hpi12max = rollapply(hpi, 12, max, fill = NA, na.rm = FALSE, align = 'right'))
+```
 
-head(states_hpa_leaflet)
+```{r, message = FALSE, warning = FALSE}
+## Work with data from 1999-2017
+states_post_1990 <- 
+  states_wrangled_ggplot %>%
+  filter(Date >= "1990-01-01" & Date <= "2010-01-01")
+
+# Drop the states_post_1990 object into the a ggplot
+
+hpa_ggplot <- 
+  ggplot(states_post_1990, aes(Date)) +
+  geom_line(aes(y = hpa), colour = "blue") +
+  #geom_line(aes(y=hpi12max), colour = "red") +
+  #geom_point(data = subset(states_post_1990, Date == "2008-05-31"), 
+   #          aes(x = Date, y = hpa), color = "green", alpha = 0.7) +
+  ylab("Housing Price Index") +
+  #facet_wrap(~state, ncol = 10) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  theme_minimal()
+
+hpa_ggplot
+ggplotly(hpa_ggplot)
+```
+
+
+```{r}
+# Now we want to merge by a common column name. 
+states_hpa_leaflet <- merge(states, states_hpi_wrangled, by = "STUSPS", all.x = TRUE)
+# There's now a column in our map called hpa. Why is there an NA? 
+head(states_hpa_leaflet$hpa)
+head(states_hpa_leaflet$NAME)
+# There's an NA becuase American Somoa is not a state and we only data about states. That NA is not going
+#hurt us. Instead, it won't get a nice color on the map. Why else is that helpful? If missed a state, it 
+# would be grey.
 ```
 
 
@@ -68,9 +170,28 @@ leaf_states
 
 
 ```{r}
+states_hpi_highcharter <-
+  states_hpi %>%
+  select(-53) %>% 
+  # remove confusing metadata
+  slice(-508:-523) %>% 
+  # add nice date column
+  mutate(Date = seq(mdy('01/31/1975'),mdy('03/31/2017'), by = 'months')) %>%
+  # remove the month column, move date column to be first
+  select(Date, everything(), -Month) 
+
 # We need to convert to xts before calling highcharter. 
-states_hpi_xts <- states_hpi %>% 
+states_hpi_xts <- 
+  states_hpi_highcharter %>% 
   as_xts(date_col = Date)
+
+# We don't need to, but if we needed to go back to a tibble/data frame? 
+states_back_to_tibble <- 
+  states_hpi_xts %>% 
+  as_tibble(preserve_row_names = TRUE) %>%
+  mutate(date = ymd(row.names)) %>% 
+  select(-row.names) %>% 
+  select(date, everything())
 
 highchart(type = "stock") %>%
   hc_title(text = "California and Georgia HPI") %>%
