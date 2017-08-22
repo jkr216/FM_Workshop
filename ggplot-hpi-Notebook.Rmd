@@ -1,0 +1,173 @@
+---
+title: "HPI Data: excel to ggplot via dplyr"
+output: html_notebook
+---
+
+```{r setup, message = FALSE, warning = FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(zoo)
+```
+
+Our purpose is to take an excel file of the housing price index (hpi) for the 50 states since 1975 and get into a format that can be used to visualize the data using ggplot.
+
+For `ggplot` we'll need to get this excel data into a data.frame or tibble with an appropriate date column. 
+
+
+```{r, message = FALSE, warning = FALSE}
+
+# After import, we'll have a data.frame object
+# that still needs work - we'll wrangle it into shape.
+# Note that FMAC updates this data every few months, and 
+# the script might need to updated accordingly. In particular, FMAC might add more metadata somewhere.
+library(readxl)
+url <- "http://www.freddiemac.com/research/docs/states.xls"
+destfile <- "states.xls"
+curl::curl_download(url, destfile)
+states_hpi <- read_excel(destfile, col_types = c("text", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric"), skip = 5)
+```
+
+Take a look at the states_hpi object. 
+
+First 10 rows:
+
+```{r}
+head(states_hpi) 
+```
+
+Last 16 rows: 
+
+```{r}
+tail(states_hpi, 16)
+```
+
+1. There are 16 rows of metadata at the bottom. 
+2. Remove those with `slice`
+3. The date column is called "month".
+4. It's terribly, unusably formatted - what does 1975M01 mean?
+5. We'll use `mutate` to create a 'date' column. 
+6. We'll use `select` to delete the poorly formatted 'month' column and move Date to be first 
+7. Now we can move from wide to long format so that each variable has it's own column. This is what ggplot wants. 
+8. We'll use `gather` for this. 
+9. Let's round off `hpi` using the `round` function. Substantively, use `mutate` and create a new variable called `hpi` to replace the old. 
+10. Then it's time to start doing some calculations. We are already have the monthly housing price index. But we want to add some of our own calculations: 
+
+    + monthly apprecation (annualized) = `hpa = ((1+ (hpi-lag(hpi))/hpi)^12) - 1`
+    + annual apprecation = `((1+ (hpi-lag(hpi, 12))/hpi)^1) - 1`
+    + quarterly (annualized) = `((1+ (hpi-lag(hpi, 3))/hpi)^4) - 1`
+    + rolling 12 month max hpi = `rollapply(hpi, 12, min, fill = NA, na.rm = FALSE, align = 'right')`
+    + rolling 12 month min hpi = `rollapply(hpi, 12, max, fill = NA, na.rm = FALSE, align = 'right')`
+
+10. Not necessary but what if we wanted to parse the date string. We can use `separate` to extract the year and month: `separate(date, into = c("year", "month"), sep = '-', convert = TRUE, remove = FALSE)`
+
+
+```{r, message = FALSE, warning = FALSE}
+
+
+states_wrangled_ggplot <- 
+  states_hpi %>% 
+  # remove confusing metadata
+  # This next line might need to be updated if the format changes - what if FMAC decide to include
+  # three more lines of metadata that we don't want.
+  slice(-511:-526) %>% 
+  # Add a better formatted/titled Date column
+  mutate(Date = seq(as.Date('1975/01/31'), by = "month", length.out = nrow(.))) %>% 
+  # remove the month column, move date column to be first
+  select(Date, everything(), -Month) %>% 
+  #gather from wide to long format
+  gather(state, hpi, -Date) %>%
+  #round hpi to four digits
+  mutate(hpi = round(hpi, digits = 4)) %>%
+  #create new column: hpa, hpa12, hpa3 etc.
+  mutate(
+         hpa = ((1+ (hpi-lag(hpi))/hpi)^12) - 1, 
+         hpa12 = ((1+ (hpi-lag(hpi, 12))/hpi)^1) - 1, 
+         hpa3 = ((1+ (hpi-lag(hpi, 3))/hpi)^4) - 1,
+         hpi12min = rollapply(hpi, 12, min, fill = NA, na.rm = FALSE, align = 'right'),
+         hpi12max = rollapply(hpi, 12, max, fill = NA, na.rm = FALSE, align = 'right')) %>% 
+  ##create a column called year and month by separating the date column
+  separate(Date, into = c("year", "month"), sep = '-', convert = TRUE, remove = FALSE)
+
+head(states_wrangled_ggplot)
+```
+
+
+Take a look now. There are new columns and it's in long format. 
+
+Let's head to `ggplot` and visualize.
+
+```{r, message = FALSE, warning = FALSE}
+## Work with data from 1990-2010
+states_1990_2010 <- 
+  states_wrangled_ggplot %>%
+  filter(Date >= "1990-01-01" & Date <= "2010-01-01")
+
+# Put the states_1990_2010 object into the a ggplot
+
+hpa_ggplot <- 
+  # This is a time series, so the x-axis is the 'Date'
+  ggplot(states_1990_2010, aes(Date)) +
+  # Drop in whatever date to be charted on y-axis against time on x-axis.
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  theme_minimal() +
+  geom_line(aes(y = hpi12min), colour = "blue") +
+  ylab("Housing Price Index")
+
+hpa_ggplot
+```
+
+ggplot works in layers and we can keep adding layers to that object. 
+
+```{r}
+  # can add another time series or y-axis value
+hpa_ggplot <- hpa_ggplot + 
+  geom_line(aes(y=hpi), colour = "red")
+
+hpa_ggplot
+
+
+```
+
+We can facet out by state instead of putting all the states on one graph.
+
+```{r}
+hpa_ggplot_faceted <- 
+  hpa_ggplot +
+  facet_wrap(~state, ncol = 10)
+
+hpa_ggplot_faceted
+```
+
+Let's add a green point at a specific date. 
+
+```{r}
+# Add points
+hpa_ggplot_faceted <- hpa_ggplot_faceted + 
+  geom_point(data = subset(states_1990_2010, Date == "2000-01-31"), 
+             aes(x = Date, y = hpi), color = "green", alpha = 0.7)
+
+hpa_ggplot_faceted
+```
+
+Plotly can make our ggplots a bit more interactive. After we call `ggplotly` try mousing over the graph.
+
+```{r, message = FALSE, warning = FALSE}
+library(plotly)
+ggplotly(hpa_ggplot)
+```
+

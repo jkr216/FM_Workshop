@@ -3,23 +3,59 @@ title: "Map HPI"
 runtime: shiny
 output: 
   flexdashboard::flex_dashboard:
+    source_code: embed
     orientation: rows
     vertical_layout: fill
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include = FALSE}
 # Load packages and initialize data here
-library(flexdashboard)
-library(highcharter)
+library(tigris)
 library(tidyverse)
-library(Quandl)
+library(tidyquant)
 library(leaflet)
+library(highcharter)
+library(Quandl)
+library(rgeos)
 
 # You might want to supply an api key
 Quandl.api_key("d9EidiiDWoFESfdk5nPy")
 
-##load data
-load('leaflet_states.RDat')
+states <- states(cb = TRUE, class = "sf")
+
+states_hpi <- 
+ Quandl("FMAC/HPI", order = 'asc')
+
+states_wrangled <- 
+  states_hpi %>%
+  filter(Date == ymd("2016-03-31") | Date == ymd("2017-03-31")) %>%
+  gather(state, value, -Date) %>% 
+  group_by(state) %>% 
+  mutate(hpa = (value - lag(value))/ lag(value)) %>%
+  mutate(hpa = round(hpa, digits = 4) * 100)  %>%
+  na.omit() %>% 
+  select(state, hpa) %>% 
+  rename(STUSPS = state)
+
+states_hpa_leaflet <- merge(states, states_wrangled, by = "STUSPS", all.x = TRUE)
+
+statesPal<-colorNumeric(
+  palette = "GnBu",
+  domain = states_hpa_leaflet$hpa)
+
+statesPopup <- paste0( 
+                    states_hpa_leaflet$NAME,
+                    "<br>Annual House Price Percent Change: ", 
+                     states_hpa_leaflet$hpa, "%")
+
+leaf_states <- 
+  leaflet(states_hpa_leaflet) %>% 
+  addProviderTiles("CartoDB.Positron") %>%   
+  setView(-95, 40, zoom = 4) %>% 
+  addPolygons(stroke = TRUE, color = "black", weight = .4, opacity = 1.0, 
+              smoothFactor = 0.5, fill = TRUE, fillColor = ~statesPal(hpa), 
+              fillOpacity = .8, layerId = ~STUSPS, popup = statesPopup)
+
 ```
 
 House Prices by State {data-orientation=rows}
@@ -28,7 +64,7 @@ House Prices by State {data-orientation=rows}
 Row {data-height=550}
 -------------------------------------
 
-### USA States
+### Map shaded by annual houe price appreciation. Click to see HPI over time.
 
 ```{r, echo = FALSE}
 
@@ -44,18 +80,19 @@ clicked_state<- eventReactive(input$map1_shape_click, {
 
 
 state_data <- reactive({
-  data_set <- "FMAC/HPI_AK"
+  data_set <- paste("FMAC/HPI_", as.character(clicked_state()), sep = "")
   state_data <- Quandl(data_set, type = "xts", order = "asc")
   index(state_data) <- as.Date(as.yearmon(index(state_data), format = '%Y%m'))
   state_data
 }) 
+
 ```
 
 
 Row {data-height=450}
 -----------------------------------------------------------------------
 
-### Chart B
+### HPI over time
 
 ```{r}
 highchartOutput("highchart")
@@ -65,7 +102,7 @@ output$highchart <- renderHighchart({
   validate(need(input$map1_shape_click$id != "",
                 "Please click on a state to display its HPI price history."))
   
-  state_name <- as.character(clicked_state())
+  state_name <- state.name[match(as.character(clicked_state()),state.abb)]
   title <- paste(state_name, "HPI", sep = " ")
   
   highchart(type = "stock") %>% 

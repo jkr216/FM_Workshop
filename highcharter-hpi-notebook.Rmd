@@ -1,0 +1,85 @@
+---
+title: "HPI Data: from excel to ggplot/plotly via dplyr"
+output: html_notebook
+---
+
+```{r setup, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(tidyquant)
+library(highcharter)
+library(readxl)
+```
+
+Here's a data import and wrangling exercise. Our purpose is to take an excel file of the housing price index (hpi) for the 50 states since 1975 and get into a format that can be used to visualize the data using ggplot, highcharter and leaflet.
+
+For `ggplot` we'll need to get this excel data into a data.frame or tibble with an appropriate date column. 
+
+For `highcharter`, we'll need an `xts` object. 
+
+```{r, message = FALSE, warning = FALSE}
+
+# Load in data frame of housing price index for all 50 states
+# Plus the national average
+#states_hpi <- 
+ # Quandl("FMAC/HPI", order = 'asc')
+
+# Use the Import Dataset button to show how to do some 
+# pre-sorting. After import, we'll have a data.frame object
+# that still needs work - we'll wrangle it into shape.
+states_hpi <- read_excel("states_hpi.xls", 
+    col_types = c("text", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "skip", "skip"), na = "NA", skip = 5)
+
+states_wrangled_highcharter <-
+  states_hpi %>%
+  select(-53) %>% 
+  # remove confusing metadata
+  slice(-508:-523) %>% 
+  # add nice date column
+  mutate(Date = seq(mdy('01/31/1975'),mdy('03/31/2017'), by = 'months')) %>%
+  # remove the month column, move date column to be first
+  select(Date, everything(), -Month) %>% 
+  as_xts(date_col = Date)
+
+head(states_wrangled_highcharter)
+```
+
+```{r}
+# We don't need to, but if we needed to go back to a tibble/data frame? 
+states_back_to_tibble <- 
+  states_wrangled_highcharter %>% 
+  as_tibble(preserve_row_names = TRUE) %>%
+  mutate(date = ymd(row.names)) %>% 
+  select(-row.names) %>% 
+  select(date, everything())
+```
+
+```{r}
+
+highchart(type = "stock") %>%
+  hc_title(text = "California and Georgia HPI") %>%
+  hc_add_series(states_wrangled_highcharter$GA, name = "Georgia HPI", color = 'blue') %>%
+  hc_add_series(states_wrangled_highcharter$CA, name = "California HPI", color = 'green') %>%
+  hc_navigator(enabled = FALSE) %>% 
+  hc_scrollbar(enabled = FALSE)
+
+```
+
+
+

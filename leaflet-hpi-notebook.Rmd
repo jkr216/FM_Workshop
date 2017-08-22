@@ -1,0 +1,118 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, message = FALSE, warning = FALSE}
+library(tigris)
+library(tidyverse)
+library(tidyquant)
+library(leaflet)
+library(highcharter)
+library(Quandl)
+
+
+# You might want to supply an api key
+Quandl.api_key("d9EidiiDWoFESfdk5nPy")
+```
+
+```{r, warning = FALSE}
+states <- states(cb = TRUE, class = "sf")
+
+head(states)
+```
+
+
+```{r, message = FALSE, warning = FALSE}
+
+# Load in data frame of housing price index for all 50 states
+# Plus the national average
+states_hpi <- 
+ Quandl("FMAC/HPI", order = 'asc')
+
+# Take a look at the states_hpi object. 
+# The data column is called "month", it's terribly, unusably formatted.
+# We'll use `mutate` to create a 'date' column.
+# There are 15 rows of metadata at the bottom. Need to remove those with `slice`
+
+states_hpi_wrangled <- 
+  states_hpi %>% 
+  # remove confusing metadata
+  #slice(-508:-523) %>% 
+  # add nice date column
+  #mutate(Date = seq(mdy('01/31/1975'), mdy('03/31/2017'), by = 'months')) %>%
+  # remove the month column, move date column to be first
+  
+  #select(Date, everything(), -Month) %>% 
+  # Filter to just the last year (March to March)
+  filter(Date == ymd("2016-03-31") | Date == ymd("2017-03-31")) %>% 
+  # Change to long format
+  gather(state, value, -Date) %>% 
+  # Groupd by state
+  group_by(state) %>%
+  # Add annual price appreciation value with mutate and lag function
+  mutate(hpa = (value - lag(value))/ lag(value)) %>%
+  # Round that new value
+  mutate(hpa = round(hpa, digits = 3) * 100)  %>% 
+  # good practice to get rid of any NAs, unless those are important to identify
+  na.omit() %>% 
+  # Get rid all except state and HPA. We don't care about the rest.
+  select(state, hpa) %>% 
+  # Rename the column? Why in the world choose STUSPS? 
+  # So we can add it to our shapefile/map
+  rename(STUSPS = state)
+
+states_wrangled <- 
+  states_hpi %>%
+  filter(Date == ymd("2016-03-31") | Date == ymd("2017-03-31")) %>% 
+  gather(state, value, -Date) %>% 
+  group_by(state) %>% 
+  mutate(hpa = (value - lag(value))/ lag(value)) %>%
+  mutate(hpa = round(hpa, digits = 2) * 100)  %>% 
+  na.omit() %>% 
+  select(state, hpa) %>% 
+  rename(STUSPS = state)
+
+```
+
+
+```{r}
+# Now we want to merge by a common column name. 
+states_hpa_leaflet <- merge(states, states_hpi_wrangled, by = "STUSPS", all.x = TRUE)
+# There's now a column in our map called hpa. Why is there an NA? 
+head(states_hpa_leaflet$hpa)
+head(states_hpa_leaflet$NAME)
+# There's an NA becuase American Somoa is not a state and we only data about states. That NA is not going
+#hurt us. Instead, it won't get a nice color on the map. Why else is that helpful? If missed a state, it 
+# would be grey.
+```
+
+
+```{r, fig.height = 5, fig.width = 10, message = FALSE, warning = FALSE}
+# Build states map
+statesPal<-colorNumeric(
+  palette = "GnBu",
+  domain = states_hpa_leaflet$hpa)
+
+statesPopup <- paste0( 
+                    states_hpa_leaflet$NAME,
+                    "<br>Annual House Price Percent Change: ", 
+                     states_hpa_leaflet$hpa, "%")
+
+leaf_states <- 
+  leaflet(states_hpa_leaflet) %>% 
+  addProviderTiles("CartoDB.Positron") %>%   
+  setView(-95, 40, zoom = 4) %>% 
+  addPolygons(stroke = TRUE, color = "black", weight = .4, opacity = 1.0, 
+              smoothFactor = 0.5, fill = TRUE, fillColor = ~statesPal(hpa), 
+              fillOpacity = .8, layerId = ~STUSPS, popup = statesPopup)
+
+leaf_states
+```
+
+
+
+```{r}
+save(leaf_states, file = "leaflet_states.RDat")
+```
+
