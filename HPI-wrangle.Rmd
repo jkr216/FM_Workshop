@@ -1,0 +1,251 @@
+---
+title: "Data Tranformation and Wrangling"
+output: html_notebook
+---
+
+    + import an excel spreadsheet
+    + Remove rows with slice()
+    + Pick variables by their names select()
+    + Pick observations by their values filter()
+    + from wide to long, tidy format with gather()
+    + Create new variables with functions of existing variables mutate()
+    + group_by() changes the scope to operating on it group-by-group
+    + Reorder the rows arrange()
+    + pull apart dates with separate()
+    + toggle from tibble to xts (and back eventually)
+    
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+library(tidyquant)
+library(timetk)
+knitr::opts_chunk$set(message=FALSE, warning=FALSE)
+```
+
+Our purpose is to take an excel file of the housing price index (hpi) for the 50 states since 1975 and get into a format that can be used to visualize the data using ggplot or another charting tool like highcharter.
+
+
+```{r}
+# Import data here
+
+library(readxl)
+url <- "http://www.freddiemac.com/research/docs/states.xls"
+destfile <- "states_hpi.xls"
+curl::curl_download(url, destfile)
+states_hpi <- read_excel(destfile, col_types = c("text", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "skip", 
+    "skip"), skip = 5)
+
+library(readxl)
+url <- "http://www.freddiemac.com/research/docs/states.xls"
+destfile <- "states_hpi.xls"
+curl::curl_download(url, destfile)
+states_hpi <- read_excel(destfile, col_types = c("text", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", "skip", 
+    "skip"), skip = 5)
+
+tail(states_hpi, n = 20)
+
+``` 
+
+## What if had this in a database somewehere? 
+
+```{r}
+library(config)
+library(dbplyr)
+library(DBI)
+
+dw <- config::get("mssql")
+con <- DBI::dbConnect(odbc::odbc(),
+                      Driver = dw$Driver,
+                      Server = dw$Server,
+                      #Host = dw$Host,
+                      UID    = dw$UID,
+                      PWD    = dw$PWD,
+                      Port   = dw$Port,
+                      Database = dw$Database
+                      #Schema = dw$Schema
+)
+
+states_hpi_db <-
+  tbl(con, "states-hpi") %>%
+  collect()
+```
+
+
+## Tibbles Tidyverse
+
+```{r}
+states_hpi_wrangled <- 
+  
+  states_hpi_db %>%
+  
+  # Remove confusing metadata.
+  
+  slice(-514:-529) %>% 
+  
+  # Add a better formatted/titled Date column
+
+  mutate(Date = seq(ymd('1975/01/01'), by = "month", length.out = nrow(.))) %>% 
+  
+  # I don't want DC or Month anymore
+  
+  select(Date, everything(), -Month, -DC) %>% 
+  
+  # Let's choose Georgia and Florida and Cali and NY
+  
+  select(Date, GA, FL, CA, NY) %>% 
+  
+  # Let's filter to after 2000
+  
+  filter(Date >= "2000-01-01") %>%
+  
+  # Gather to long format, hugely important and confusing
+  
+  gather(state, hpi, -Date) %>%
+  
+  # what if don't group by?
+  group_by(state) %>% 
+  
+  mutate(hpa3 = ((1+ (hpi-lag(hpi, 3))/hpi)^4) - 1) # %>% 
+  #let's go back to wide format
+  #select(-hpi) %>% 
+  
+  #spread(state, hpa3)
+
+  #intuitive to summarise
+  #summarise(meanHPI = mean(hpi),
+  #         meanHPA3 = mean(na.omit(hpa3)))
+  
+  
+  # Create a column called year and month by separating the date column
+  # separate(Date, into = c("year", "month"), sep = '-', convert = TRUE, remove = FALSE) %>%
+  # change order so it goes from today to the past
+  # arrange(desc(Date))
+  # add a row with add_row()
+  # add a column with add_column()
+
+head(states_hpi_wrangled)  
+```
+
+## What if we want this to be an XTS object? 
+We'll use the timetk package to convert to an xts object
+
+```{r}
+states_hpi_xts <- 
+  # Remove confusing metadata.
+  states_hpi_db %>% 
+  
+  slice(-514:-529) %>% 
+  
+  # Add a better formatted/titled Date column
+  
+  mutate(Date = seq(ymd('1975/01/01'), by = "month", length.out = nrow(.))) %>% 
+  # Use the timetk package to convert back to xts
+  # timetk
+  tk_xts(date_var = Date)
+
+# head(states_hpi_xts)
+# head(index(states_hpi_xts))
+# head(coredata(states_hpi_xts))
+
+# Return.calculate( method = "log")
+```
+
+## Back to Data Frame/Tibble
+
+```{r}
+#library(tidyquant)
+#library(timetk)
+states_hpi_back_to_tibble <- 
+  states_hpi_xts %>% 
+  tk_tbl(preserve_index = TRUE, rename_index = "Date") 
+
+# mutate(returns = (log(returns) - log(lag(returns))))
+# tq_mutate(mutate_fun = periodReturn, period = "monthly", type = "log")
+
+```
+
+## What if we just want one row....and it needs to be a vector (maybe for constructing a matrix)
+
+```{r}
+states_hpi_back_to_tibble %>% 
+  slice(5) %>% 
+  unlist(use.names = FALSE)
+```
+
+
+
+### Data Visualization 
+
+
+```{r, warning = FALSE}
+# Make so all titles centered
+theme_update(plot.title = element_text(hjust = 0.5))
+
+hpa_ggplot <- 
+  # x-axis is the 'Date'
+  ggplot(states_hpi_wrangled, aes(x = Date)) +
+  # Drop in whatever date to be charted on y-axis against time on x-axis.
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  # theme_minimal() +
+  geom_line(aes(y = hpa3, colour = state)) +
+  ggtitle("3-Mo Housing Price Appreciation") +
+  ylab("percent") +
+  scale_y_continuous(labels = scales::percent, breaks = seq(-10, 10, by = .02))
+
+
+hpa_ggplot
+```
+
+
+```{r, warning = FALSE}
+hpa_ggplot_faceted <- 
+  hpa_ggplot +
+  facet_wrap(~state)
+
+hpa_ggplot_faceted
+```
+
+
+
+```{r}
+library(highcharter)
+highchart(type = "stock") %>%
+  hc_title(text = "California and Georgia HPI") %>%
+  hc_add_series(states_hpi_xts$GA, name = "Georgia HPI", color = 'blue') %>%
+  hc_add_series(states_hpi_xts$CA, name = "California HPI", color = 'green') %>%
+  hc_navigator(enabled = FALSE) %>% 
+  hc_scrollbar(enabled = FALSE)
+```
+
+
+
+
+
+

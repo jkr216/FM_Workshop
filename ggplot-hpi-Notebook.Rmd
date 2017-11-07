@@ -8,6 +8,7 @@ library(ggplot2)
 library(dplyr)
 library(tidyr)
 library(zoo)
+knitr::opts_chunk$set(message=FALSE, warning=FALSE)
 ```
 
 Our purpose is to take an excel file of the housing price index (hpi) for the 50 states since 1975 and get into a format that can be used to visualize the data using ggplot.
@@ -67,8 +68,8 @@ tail(states_hpi, 16)
 9. Let's round off `hpi` using the `round` function. Substantively, use `mutate` and create a new variable called `hpi` to replace the old. 
 10. Then it's time to start doing some calculations. We are already have the monthly housing price index. But we want to add some of our own calculations: 
 
-    + monthly apprecation (annualized) = `hpa = ((1+ (hpi-lag(hpi))/hpi)^12) - 1`
-    + annual apprecation = `((1+ (hpi-lag(hpi, 12))/hpi)^1) - 1`
+    + monthly appreciation (annualized) = `hpa = ((1+ (hpi-lag(hpi))/hpi)^12) - 1`
+    + annual appreciation = `((1+ (hpi-lag(hpi, 12))/hpi)^1) - 1`
     + quarterly (annualized) = `((1+ (hpi-lag(hpi, 3))/hpi)^4) - 1`
     + rolling 12 month max hpi = `rollapply(hpi, 12, min, fill = NA, na.rm = FALSE, align = 'right')`
     + rolling 12 month min hpi = `rollapply(hpi, 12, max, fill = NA, na.rm = FALSE, align = 'right')`
@@ -91,6 +92,7 @@ states_wrangled_ggplot <-
   select(Date, everything(), -Month) %>% 
   #gather from wide to long format
   gather(state, hpi, -Date) %>%
+  group_by(state) %>% 
   #round hpi to four digits
   mutate(hpi = round(hpi, digits = 4)) %>%
   #create new column: hpa, hpa12, hpa3 etc.
@@ -121,12 +123,12 @@ states_1990_2010 <-
 
 hpa_ggplot <- 
   # This is a time series, so the x-axis is the 'Date'
-  ggplot(states_1990_2010, aes(Date)) +
+  ggplot(states_1990_2010, aes(x = Date)) +
   # Drop in whatever date to be charted on y-axis against time on x-axis.
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
   theme_minimal() +
   geom_line(aes(y = hpi12min), colour = "blue") +
-  ylab("Housing Price Index")
+  ylab("Housing Price Index") 
 
 hpa_ggplot
 ```
@@ -136,7 +138,7 @@ ggplot works in layers and we can keep adding layers to that object.
 ```{r}
   # can add another time series or y-axis value
 hpa_ggplot <- hpa_ggplot + 
-  geom_line(aes(y=hpi), colour = "red")
+  geom_line(aes(y = hpi), colour = "red") 
 
 hpa_ggplot
 
@@ -168,6 +170,16 @@ Plotly can make our ggplots a bit more interactive. After we call `ggplotly` try
 
 ```{r, message = FALSE, warning = FALSE}
 library(plotly)
+# looks good
 ggplotly(hpa_ggplot)
+# not so good
+ggplotly(hpa_ggplot_faceted)
+```
+
+```{r}
+p <- ggplot(data = diamonds, aes(x = cut, fill = clarity)) +
+            geom_bar(position = "dodge")
+p
+ggplotly(p)
 ```
 

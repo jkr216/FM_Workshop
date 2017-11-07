@@ -1,0 +1,100 @@
+---
+title: "Transform Asset Prices to Log Returns"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+
+```{r setup, message = FALSE, include = FALSE}
+
+knitr::opts_chunk$set(message=FALSE, warning=FALSE)
+```
+
+
+```{r}
+library(tidyverse)
+library(tidyquant)
+library(timetk)
+library(tibbletime)
+```
+
+We are building toward analyzing the returns of a 5-asset portfolio consisting of the following.
+
+    + SPY (S&P500 fund)
+    + EFA (a non-US equities fund)
+    + EEM (an emerging-mkts fund)
+
+```{r, message=FALSE, warning=FALSE}
+# The symbols vector holds our tickers. 
+symbols <- c("SPY","EFA", "EEM")
+
+# The prices object will hold our raw price data throughout this book.
+prices <- 
+  getSymbols(symbols, src = 'yahoo', from = "2015-01-01", 
+             auto.assign = TRUE, warnings = FALSE) %>% 
+  map(~Ad(get(.))) %>% 
+  reduce(merge) %>%
+  `colnames<-`(symbols)
+
+```
+
+### Or import from a database
+
+### The Tidyverse and Tidyquant World
+ 
+
+```{r}
+asset_returns_dplyr_byhand <- 
+  
+  prices %>% 
+  
+  to.monthly(indexAt = "last", OHLC = FALSE) %>% 
+  
+  tk_tbl(preserve_index = TRUE, rename_index = "date") %>%
+  
+  gather(asset, returns, -date) %>% 
+  
+  group_by(asset) %>%  
+  
+  mutate(returns = (log(returns) - log(lag(returns)))) %>%
+  
+  spread(asset, returns) %>% 
+  
+  select(date, symbols)
+```
+
+
+```{r}
+head(asset_returns_dplyr_byhand)
+
+```
+
+
+```{r}
+asset_returns_long <- 
+  asset_returns_dplyr_byhand %>% 
+  gather(asset, returns, -date) %>%
+  group_by(asset) %>% 
+  na.omit() %>% 
+  summarise(mean = mean(returns))
+
+head(asset_returns_long)
+```
+
+
+
+```{r}
+cov_calcs <- 
+  asset_returns_long %>% 
+  spread(asset, returns) %>% 
+  summarise(
+            cov_1_2 = cov(.[symbols[1]], .[symbols[2]]),
+            cov_1_3 = cov(.[symbols[1]], .[symbols[3]]),
+            cov_2_3 = cov(.[symbols[2]], .[symbols[3]])) %>%
+  rename(!!paste("cov", symbols[1], symbols[2], sep = "_") := cov_1_2,
+         !!paste("cov", symbols[1], symbols[3], sep = "_") := cov_1_3,
+         !!paste("cov", symbols[2], symbols[3], sep = "_") := cov_2_3) %>% 
+  gather(pair, covariance)
+```
+
