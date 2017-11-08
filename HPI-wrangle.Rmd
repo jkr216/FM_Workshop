@@ -3,107 +3,70 @@ title: "Data Tranformation and Wrangling"
 output: html_notebook
 ---
 
-    + import an excel spreadsheet
-    + Remove rows with slice()
-    + Pick variables by their names select()
-    + Pick observations by their values filter()
-    + from wide to long, tidy format with gather()
-    + Create new variables with functions of existing variables mutate()
-    + group_by() changes the scope to operating on it group-by-group
-    + Reorder the rows arrange()
-    + pull apart dates with separate()
-    + toggle from tibble to xts (and back eventually)
-    
-
 ```{r setup, message=FALSE, warning=FALSE}
+# primarily using tidyvers
 library(tidyverse)
-library(lubridate)
+# will use these for toggling back to xts
 library(tidyquant)
 library(timetk)
+
 knitr::opts_chunk$set(message=FALSE, warning=FALSE)
 ```
 
-Our purpose is to take an excel file of the housing price index (hpi) for the 50 states since 1975 and get into a format that can be used to visualize the data using ggplot or another charting tool like highcharter.
+    + import an excel spreadsheet
+    + Remove rows with slice()
+    + Pick columns by their names select()
+    + Pick observations by their values filter()
+    + from wide to long, tidy format with gather() 
+    + group_by() changes the scope to operating on it group-by-group
+    + Create new variables with functions of existing variables mutate()
+    + Reorder the rows arrange()
+    + rename columns with rename()
+    + summarise values with summarise()
+    + pull apart dates with separate()
+    + toggle from tibble to xts (and back)
+    + Hadley reckons this covers about 90% of data wrangling in tidyverse
+    
 
 
 ```{r}
 # Import data here
+# data source http://www.freddiemac.com/research/indices/house-price-index.html
+
 
 library(readxl)
-url <- "http://www.freddiemac.com/research/docs/states.xls"
-destfile <- "states_hpi.xls"
-curl::curl_download(url, destfile)
-states_hpi <- read_excel(destfile, col_types = c("text", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "skip", 
-    "skip"), skip = 5)
+states_hpi <- read_excel("states_hpi.xls", 
+    col_types = c("text", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric"), 
+    skip = 5)
 
-library(readxl)
-url <- "http://www.freddiemac.com/research/docs/states.xls"
-destfile <- "states_hpi.xls"
-curl::curl_download(url, destfile)
-states_hpi <- read_excel(destfile, col_types = c("text", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "numeric", 
-    "numeric", "numeric", "numeric", "skip", 
-    "skip"), skip = 5)
 
 tail(states_hpi, n = 20)
 
 ``` 
-
-## What if had this in a database somewehere? 
-
-```{r}
-library(config)
-library(dbplyr)
-library(DBI)
-
-dw <- config::get("mssql")
-con <- DBI::dbConnect(odbc::odbc(),
-                      Driver = dw$Driver,
-                      Server = dw$Server,
-                      #Host = dw$Host,
-                      UID    = dw$UID,
-                      PWD    = dw$PWD,
-                      Port   = dw$Port,
-                      Database = dw$Database
-                      #Schema = dw$Schema
-)
-
-states_hpi_db <-
-  tbl(con, "states-hpi") %>%
-  collect()
-```
-
 
 ## Tibbles Tidyverse
 
 ```{r}
 states_hpi_wrangled <- 
   
-  states_hpi_db %>%
+  states_hpi %>%
   
   # Remove confusing metadata.
   
@@ -125,30 +88,25 @@ states_hpi_wrangled <-
   
   filter(Date >= "2000-01-01") %>%
   
-  # Gather to long format, hugely important and confusing
-  
   gather(state, hpi, -Date) %>%
   
   # what if don't group by?
   group_by(state) %>% 
   
-  mutate(hpa3 = ((1+ (hpi-lag(hpi, 3))/hpi)^4) - 1) # %>% 
-  #let's go back to wide format
-  #select(-hpi) %>% 
-  
-  #spread(state, hpa3)
+  mutate(hpa3 = ((hpi-lag(hpi, 3))/hpi)) # %>% 
 
-  #intuitive to summarise
-  #summarise(meanHPI = mean(hpi),
-  #         meanHPA3 = mean(na.omit(hpa3)))
+  #rename(new_name = hpi) %>% 
+  #arrange(desc(Date))
   
+  #na.omit() %>% 
+
+  #summarise(mean = mean(hpa3))
   
   # Create a column called year and month by separating the date column
   # separate(Date, into = c("year", "month"), sep = '-', convert = TRUE, remove = FALSE) %>%
-  # change order so it goes from today to the past
-  # arrange(desc(Date))
-  # add a row with add_row()
-  # add a column with add_column()
+  # arrange(desc(Date)) %>% 
+  # add_row()
+  # add_column()
 
 head(states_hpi_wrangled)  
 ```
@@ -156,10 +114,10 @@ head(states_hpi_wrangled)
 ## What if we want this to be an XTS object? 
 We'll use the timetk package to convert to an xts object
 
-```{r}
+```{r, warning=FALSE}
 states_hpi_xts <- 
   # Remove confusing metadata.
-  states_hpi_db %>% 
+  states_hpi %>% 
   
   slice(-514:-529) %>% 
   
@@ -171,7 +129,7 @@ states_hpi_xts <-
   tk_xts(date_var = Date)
 
 # head(states_hpi_xts)
-# head(index(states_hpi_xts))
+head(index(states_hpi_xts))
 # head(coredata(states_hpi_xts))
 
 # Return.calculate( method = "log")
@@ -184,20 +142,14 @@ states_hpi_xts <-
 #library(timetk)
 states_hpi_back_to_tibble <- 
   states_hpi_xts %>% 
-  tk_tbl(preserve_index = TRUE, rename_index = "Date") 
+  tk_tbl(preserve_index = TRUE, rename_index = "Date")  #%>% 
+  #gather(state, hpi, -Date)
 
 # mutate(returns = (log(returns) - log(lag(returns))))
 # tq_mutate(mutate_fun = periodReturn, period = "monthly", type = "log")
 
 ```
 
-## What if we just want one row....and it needs to be a vector (maybe for constructing a matrix)
-
-```{r}
-states_hpi_back_to_tibble %>% 
-  slice(5) %>% 
-  unlist(use.names = FALSE)
-```
 
 
 
